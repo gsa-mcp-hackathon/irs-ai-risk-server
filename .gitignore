@@ -11,3 +11,35 @@ __pycache__/
 *.key
 *apikey*.json
 credentials.json
+
+# ── Bob (IDE-local config) ─────────────────────────────────────────────────
+# .bob/mcp.json contains absolute machine-local paths and MCP server configs
+# that are specific to each developer's environment. Skills under .bob/skills/
+# are also IDE-local; exclude the whole directory.
+.bob/
+
+# ── OS / editor artefacts ──────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+
+# ── Build / dist ───────────────────────────────────────────────────────────
+dist/
+build/
+*.egg-info/
+
+# ── Test / coverage artefacts ─────────────────────────────────────────────
+.coverage
+htmlcov/
+coverage.xml
+
+# ── uv / pip ──────────────────────────────────────────────────────────────
+*.whl
+
+# ── Deploy staging artefacts (generated; never commit) ────────────────────
+deploy/ibm/local-mcp-toolkit/_stage/
+deploy/ibm/local-mcp-toolkit/_toolkit.generated.yaml
+deploy/ibm/local-mcp-toolkit/.env
+deploy/ibm/code-engine-git-build/.env
