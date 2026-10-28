@@ -1,0 +1,30 @@
+# watsonx Orchestrate LOCAL MCP toolkit spec — IRS AI Risk Server
+#
+# DO NOT import this file directly. Use the register script:
+#   bash deploy/ibm/local-mcp-toolkit/register-toolkit.sh
+#
+# The register script builds a minimal staging directory (_stage/) with the
+# irs_risk package FLATTENED next to server.py (no src/ prefix), then rewrites
+# package_root to point at it before calling `orchestrate toolkits import`.
+#
+# Orchestrate uploads package_root, installs requirements.txt, and runs
+# `python server.py` over stdio. server.py adds its own directory to sys.path
+# so `import irs_risk` resolves correctly.
+#
+# No credentials are required by this server, so no `connections` are declared.
+spec_version: v1
+kind: mcp
+name: mdc-irs-risk-toolkit
+description: >
+  IRS AI Risk Scoring MCP toolkit (GSA hackathon — MDC participant).
+  Provides five tools: hypothetical tax-profile risk scoring,
+  1099 income reconciliation, IRS guidance lookup, synthetic
+  taxpayer record generation, and analyst briefing assembly.
+  DISCLAIMER: scores are hypothetical and do not implement the
+  actual IRS DIF methodology.
+command: python server.py
+env: []
+tools:
+  - "*"
+# Placeholder — the register script overwrites this with the staging dir path.
+package_root: ./_stage

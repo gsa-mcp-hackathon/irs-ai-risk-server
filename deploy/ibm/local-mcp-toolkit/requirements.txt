@@ -1,0 +1,11 @@
+# Runtime dependencies for the IRS AI Risk LOCAL MCP toolkit.
+#
+# watsonx Orchestrate installs these from requirements.txt at package_root.
+# The irs_risk package itself is staged as a directory (no install step needed);
+# only its third-party dependencies must be listed here.
+#
+# Keep in sync with pyproject.toml [project.dependencies].
+fastmcp>=4.0.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+httpx2>=2.0.0
