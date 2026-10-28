@@ -1,0 +1,13 @@
+# Runtime dependency
+fastmcp
+
+# ── Local dev setup ──────────────────────────────────────────────────────────
+# The system Python is 3.9; fastmcp requires >=3.10.
+# Use uv to create a managed venv — no sudo needed:
+#
+#   uv venv --python 3.10   # creates .venv/ with CPython 3.10
+#   source .venv/bin/activate
+#   uv pip install fastmcp
+#
+# The MCP server (mcp.json) uses `uvx --from fastmcp-slim fastmcp run server.py`
+# and is fully self-contained — no local venv required for Bob to connect.
