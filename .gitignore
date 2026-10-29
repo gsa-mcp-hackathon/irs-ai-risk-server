@@ -43,3 +43,6 @@ deploy/ibm/local-mcp-toolkit/_stage/
 deploy/ibm/local-mcp-toolkit/_toolkit.generated.yaml
 deploy/ibm/local-mcp-toolkit/.env
 deploy/ibm/code-engine-git-build/.env
+
+# Local hackathon reference templates
+docs/references/
