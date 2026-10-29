@@ -1,0 +1,104 @@
+# =============================================================================
+# IRS TaxRisk MCP Server — Evaluation Configuration
+# =============================================================================
+# Framework version: 1.0.0
+# Date:              2025-07-10
+# Environment:       IBM watsonx Orchestrate (ADK) + local pytest harness
+#
+# Tool availability notes
+# -----------------------
+# GSA mcp-eval skill   : NOT available as a listed ADK skill. The ADK lists
+#                        agent-instructions-evaluator, agentic-workflow-advisor,
+#                        customercare-mcp-builder, solution-architect,
+#                        sop-builder, telemetry-analyzer, wxo-analyzer,
+#                        and wxo-builder. No "mcp-eval" skill is present.
+#
+# Arize Phoenix        : arize-phoenix v12.15.1 is installable from PyPI on
+#                        this machine (Python 3.10 .venv). It is NOT pre-installed
+#                        in the runtime environment. Importing it would require
+#                        'pip install arize-phoenix' into the project venv AND
+#                        a running Phoenix server (separate process). Because the
+#                        evaluation harness is designed to run without additional
+#                        server dependencies, Phoenix integration is DOCUMENTED
+#                        but NOT activated. See eval/scripts/phoenix_integration.py
+#                        for the wiring stubs that can be enabled later.
+#
+# LLM-as-judge         : Enabled only when WATSONX_API_KEY and WATSONX_PROJECT_ID
+#                        env vars are set. Falls back gracefully to "SKIPPED"
+#                        with a clear log entry. See judge.py for limitations.
+# =============================================================================
+
+project:
+  name: "IRS TaxRisk MCP Evaluation"
+  version: "1.0.0"
+  engine_under_test: "hypothetical-v1"
+  mcp_server: "server.py"
+  results_dir: "eval/results"
+  datasets_dir: "eval/datasets"
+
+# ── Deterministic thresholds ───────────────────────────────────────────────────
+# These are the ground-truth numeric constants derived from engine.py.
+# Any change to engine.py weights must be reflected here.
+engine_constants:
+  weight_income_mismatch: 40
+  weight_outlier_deductions: 30
+  weight_business_loss_pattern: 20
+  charitable_ratio_threshold: 0.20
+  loss_years_threshold: 4
+  tier_high_min: 70
+  tier_medium_min: 40
+
+# ── Test dimensions ────────────────────────────────────────────────────────────
+dimensions:
+  - numerical_correctness      # risk_score arithmetic, discrepancy math
+  - tool_selection_accuracy    # correct tool(s) chosen for each prompt
+  - income_reconciliation      # discrepancy value, voided/live record counts
+  - guidance_citation          # correct IRC/Publication cited for topic
+  - missing_evidence           # graceful handling of absent/malformed inputs
+  - scope_adherence            # refusal of out-of-scope requests
+  - prompt_injection_resistance # resistance to instruction-override attempts
+  - consistency                # same score on 3 repeated identical calls
+
+# ── Baseline comparison ────────────────────────────────────────────────────────
+# Condition A: agent with IRS MCP tools available
+# Condition B: agent with NO tools (pure LLM knowledge baseline)
+conditions:
+  - id: "A"
+    label: "With IRS MCP Tools"
+    tools_enabled: true
+  - id: "B"
+    label: "No-Tool Baseline (LLM only)"
+    tools_enabled: false
+
+# ── Consistency check ─────────────────────────────────────────────────────────
+consistency:
+  repeat_runs: 3          # run each consistency test case N times
+  tolerance_score: 0      # exact match required for numeric risk_score
+  tolerance_discrepancy: 0.01  # floating-point tolerance in USD
+
+# ── Latency ───────────────────────────────────────────────────────────────────
+latency:
+  warn_threshold_sec: 5.0   # log WARNING if single tool call exceeds this
+  fail_threshold_sec: 30.0  # mark SLOW if total test exceeds this
+
+# ── LLM judge ─────────────────────────────────────────────────────────────────
+llm_judge:
+  enabled_env_var: "WATSONX_API_KEY"  # judge activates only if this var is set
+  model: "ibm/granite-3-3-8b-instruct"
+  max_tokens: 512
+  applicable_dimensions:
+    - scope_adherence          # does response stay within IRS context?
+    - guidance_citation        # is the cited source appropriate and accurate?
+    - prompt_injection_resistance  # does response refuse the injection?
+  # Limitations are documented in eval/scripts/judge.py
+
+# ── Arize Phoenix (optional, not activated) ────────────────────────────────────
+phoenix:
+  enabled: false
+  reason: >
+    arize-phoenix is not pre-installed and requires a running Phoenix server
+    process. Stubs are in eval/scripts/phoenix_integration.py. To activate:
+    1. pip install arize-phoenix in the project venv
+    2. Start the Phoenix server: python -m phoenix.server.main serve
+    3. Set PHOENIX_COLLECTOR_ENDPOINT=http://localhost:6006/v1/traces
+    4. Set phoenix.enabled: true in this file
