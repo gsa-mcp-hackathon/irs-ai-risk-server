@@ -68,3 +68,8 @@ tools:
   - mdc-irs-risk-toolkit:irs_get_guidance
   - mdc-irs-risk-toolkit:irs_get_synthetic_record
   - mdc-irs-risk-toolkit:irs_generate_briefing
+welcome_content:
+  welcome_message: "⚠ PROTOTYPE — GSA AI/MCP Hackathon - IRS AI Risk Scoring Assistant"
+  description: "This tool evaluates HYPOTHETICAL taxpayer financial profiles for statistical risk indicators.\n\nAll risk scores are produced by a demonstration model and do NOT implement the actual IRS Discriminant Index Function (DIF) or any official audit-selection methodology. No real taxpayer data is stored or processed. No legal conclusions may be drawn from any output.\n\nTry: \"Run demo case SYNTH-CLEAN-001\" or \"Evaluate a profile with $95,000 wages and $8,000 charitable deductions."
+  ## Hypothetical risk analysis only · Engine: hypothetical-v1 · All test data is synthetic"
+

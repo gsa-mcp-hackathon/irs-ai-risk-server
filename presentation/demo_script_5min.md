@@ -22,11 +22,11 @@
 
 **Type in Orchestrate chat:**
 ```
-Retrieve the synthetic tax record for CASE-2024-HIGHRISE and show me the key financial figures.
+Retrieve the synthetic tax record for CASE-2024-HIGHRISE using the multi_flag scenario and show me the key financial figures.
 ```
 
 **Expected agent behaviour:**
-- Calls `irs_get_synthetic_record` with `case_id=CASE-2024-HIGHRISE`
+- Calls `irs_get_synthetic_record` with `seed_id=CASE-2024-HIGHRISE`, `scenario=multi_flag`
 - Returns: gross income, reported 1099 total, third-party 1099 total, charitable donations, business loss years
 
 **Say while it runs:**
