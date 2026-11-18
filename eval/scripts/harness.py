@@ -305,6 +305,24 @@ def run_assertion(assertion: dict, result: dict, tool_error: Exception | None) -
                 "message": "" if passed else "Expected a validation error but tool succeeded",
             }
 
+        elif atype == "error_mentions_field":
+            # Verify the error message contains a specific substring (field name or phrase).
+            # This distinguishes the intended cross-field validator from a generic
+            # missing-field error produced when tool_inputs_expected is empty.
+            if tool_error is None:
+                return {
+                    "assertion_type": atype, "passed": False,
+                    "expected": expected, "actual": "no error raised",
+                    "message": "Tool did not raise an error; cannot check error message content",
+                }
+            error_text = str(tool_error)
+            passed = str(expected).lower() in error_text.lower()
+            return {
+                "assertion_type": atype, "passed": passed,
+                "expected": expected, "actual": error_text[:200],
+                "message": "" if passed else f"'{expected}' not found in error message",
+            }
+
         elif atype == "no_risk_score":
             passed = result.get("risk_score") is None
             return {

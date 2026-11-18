@@ -1,4 +1,12 @@
-# Runtime dependency
+# Runtime dependency for the LEGACY PROTOTYPE (server.py at repo root).
+# This covers only the single-file prototype entrypoint.
+#
+# For the full modular package (src/irs_risk/), all four runtime dependencies
+# are declared in pyproject.toml [project.dependencies]:
+#   fastmcp>=4.0.0, pydantic>=2.0.0, pydantic-settings>=2.0.0, httpx2>=2.0.0
+#
+# Install the full package for development:
+#   uv pip install -e ".[dev]"
 fastmcp
 
 # ── Local dev setup ──────────────────────────────────────────────────────────

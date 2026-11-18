@@ -12,6 +12,7 @@ official IRS audit selection methodology.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from enum import Enum
 from typing import Annotated, Any
 
@@ -125,6 +126,19 @@ class TaxProfileInput(BaseModel):
     @field_validator("reported_1099_income")
     @classmethod
     def reported_1099_must_not_exceed_gross(cls, v: float, info: Any) -> float:
+        """Validate that self-reported 1099 income does not exceed gross income.
+
+        Assumption: for this prototype, reported_1099_income is modelled as a
+        subset of gross_income (1099 income the taxpayer declared as part of
+        their total gross income on Form 1040 line 9).
+
+        Limitation: in practice, a taxpayer with a net operating loss carryover
+        or certain negative-income items could have more 1099 income than the
+        'gross income' figure on a specific line. If this validation is too
+        restrictive for a real-world integration, soften it to a warning flag
+        rather than a hard reject, or remove it and document the assumption
+        explicitly in the calling system.
+        """
         gross = (info.data or {}).get("gross_income")
         if gross is not None and v > gross:
             raise ValueError(
@@ -310,6 +324,66 @@ class ReconciliationRecord(BaseModel):
     form_type: str
     status: RecordStatus
     note: str | None = None
+    counted_in_total: Annotated[
+        bool,
+        Field(
+            default=False,
+            description=(
+                "True if this record's amount was included in reconciled_total. "
+                "False for voided originals, duplicates, and missing placeholders."
+            ),
+        ),
+    ]
+
+
+class ReconciliationArithmeticTrace(BaseModel):
+    """
+    Step-by-step arithmetic trace of the reconciliation calculation.
+
+    Included in ReconcileIncomeOutput so the caller can verify every cent
+    without re-implementing the algorithm. All amounts are exact-decimal
+    strings to avoid float representation ambiguity.
+    """
+    reported_total_str: Annotated[
+        str,
+        Field(description="Self-reported total as exact decimal string (e.g. '48000.00')."),
+    ]
+    counted_records: Annotated[
+        list[dict],
+        Field(
+            description=(
+                "Records included in the reconciled total. Each entry has "
+                "record_id, payer_name, amount_str, and form_type."
+            ),
+        ),
+    ]
+    excluded_records: Annotated[
+        list[dict],
+        Field(
+            description=(
+                "Records excluded from the reconciled total. Each entry has "
+                "record_id, status, and reason."
+            ),
+        ),
+    ]
+    reconciled_total_str: Annotated[
+        str,
+        Field(description="Sum of counted_records as exact decimal string."),
+    ]
+    discrepancy_str: Annotated[
+        str,
+        Field(
+            description=(
+                "reconciled_total minus reported_total as exact decimal string. "
+                "Positive = potential underreporting. Negative = over-reporting."
+            ),
+        ),
+    ]
+    rounding_note: str = (
+        "All monetary arithmetic uses Python Decimal with ROUND_HALF_EVEN "
+        "(banker's rounding) to two decimal places. Output floats are "
+        "converted from Decimal; the trace strings are the authoritative values."
+    )
 
 
 class ReconcileIncomeOutput(BaseModel):
@@ -320,14 +394,70 @@ class ReconcileIncomeOutput(BaseModel):
     reported_total: float
     reconciled_total: Annotated[
         float,
-        Field(description="Sum of all non-duplicate, non-corrected original amounts."),
+        Field(description="Sum of all live (non-voided, non-duplicate) record amounts."),
     ]
     discrepancy: Annotated[
         float,
         Field(description="reconciled_total minus reported_total (positive = underreport)."),
     ]
     records: list[ReconciliationRecord]
+    arithmetic_trace: Annotated[
+        ReconciliationArithmeticTrace,
+        Field(
+            description=(
+                "Step-by-step arithmetic trace showing which records were counted, "
+                "which were excluded, and how the final totals were computed. "
+                "Use this to verify the arithmetic independently."
+            ),
+        ),
+    ]
     summary: str
+
+
+class GuidanceRetrievalMetadata(BaseModel):
+    """Provenance and verification metadata for a static guidance entry."""
+    retrieval_mode: Annotated[
+        str,
+        Field(
+            default="static/offline",
+            description=(
+                "How this guidance was obtained. 'static/offline' means it was "
+                "compiled into the registry at build time — no live network request "
+                "is made when this tool runs."
+            ),
+        ),
+    ]
+    registry_edition: Annotated[
+        str,
+        Field(
+            default="hypothetical-v1 / compiled 2025",
+            description="Version identifier of the guidance registry this entry belongs to.",
+        ),
+    ]
+    verification_status: Annotated[
+        str,
+        Field(
+            description=(
+                "Whether the source title, URL, and summary have been manually checked "
+                "against the actual IRS publication."
+            ),
+        ),
+    ]
+    checked_date: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description=(
+                "ISO 8601 date (YYYY-MM-DD) when this entry was last verified against "
+                "the official IRS source. Null if not recorded."
+            ),
+        ),
+    ]
+    currency_warning: str = (
+        "This entry has NOT been verified against IRS publications after the "
+        "checked_date. Tax-year-specific rule changes after that date are not "
+        "reflected. Always verify against current official IRS materials at irs.gov."
+    )
 
 
 class GuidanceResult(BaseModel):
@@ -337,6 +467,17 @@ class GuidanceResult(BaseModel):
     tax_year_applicable: int | None
     summary: str
     url: str | None = None
+    retrieval_metadata: Annotated[
+        GuidanceRetrievalMetadata | None,
+        Field(
+            default=None,
+            description=(
+                "Provenance and verification metadata. Always present for static "
+                "registry entries. Consumers should surface retrieval_mode and "
+                "checked_date to end users so they can assess currency."
+            ),
+        ),
+    ]
 
 
 class GuidanceOutput(BaseModel):

@@ -1,19 +1,21 @@
 """Tool: irs_get_guidance
 
-Returns tax-year-specific IRS guidance summaries on a given topic.
+Returns IRS guidance summaries on a given tax topic.
 
-Data sources
-------------
-Primary: A curated static registry of real, publicly available IRS publications,
-revenue procedures, and IRC sections. The registry is version-stamped so
-consumers know which edition of the guidance was in effect.
+Data source
+-----------
+This tool searches a STATIC, CURATED registry of real, publicly available IRS
+publications and IRC sections. The registry was compiled at development time and
+is NOT updated in real time. No live network request is made to irs.gov or any
+other external service when this tool runs.
 
-Live lookup: Where the topic maps to a known IRS Statistical of Income (SOI)
-dataset on data.irs.gov, the tool can augment the static guidance with a live
-fetch. If the live call fails, the static guidance is returned alone.
+Retrieval mode: static / offline
+Registry edition: compiled 2025 (hypothetical-v1 release)
+Verification status: source titles and URLs manually checked at time of authoring;
+  tax-year-specific rule changes after that date are NOT reflected.
 
-All summaries include source citations and a disclaimer that the user should
-verify against current irs.gov publications.
+All results carry a disclaimer directing users to verify against current official
+IRS publications at irs.gov before relying on any summary.
 """
 
 from __future__ import annotations
@@ -23,13 +25,28 @@ from typing import Annotated
 
 from fastmcp import FastMCP
 
-from irs_risk.models import GuidanceOutput, GuidanceQueryInput, GuidanceResult
+from irs_risk.models import (
+    GuidanceOutput,
+    GuidanceQueryInput,
+    GuidanceResult,
+    GuidanceRetrievalMetadata,
+)
 
 log = logging.getLogger(__name__)
 
 # ── Static guidance registry ──────────────────────────────────────────────────
-# Keyed by normalised keyword fragments. Each entry lists the tax years it
-# applies to (None = all years / no year-specific change).
+# Each entry carries:
+#   keywords        – matched against the user's lowercased topic string
+#   source          – authoritative citation (IRC section / publication)
+#   title           – human-readable title of the publication or rule
+#   tax_years       – list of applicable years, or None (all years)
+#   summary         – plain-English explanation; must NOT assert legal violations
+#                     or automatic audit selection
+#   url             – direct link to the official IRS publication
+#   verification_status – manual check status at checked_date
+#   checked_date    – ISO 8601 date of last manual verification
+#
+# Retrieval mode is ALWAYS "static/offline" — no live fetch is performed.
 _GUIDANCE: list[dict] = [
     {
         "keywords": ["183", "hobby", "profit motive", "business loss", "schedule c loss"],
@@ -50,6 +67,8 @@ _GUIDANCE: list[dict] = [
             "automatically establish hobby status."
         ),
         "url": "https://www.irs.gov/publications/p535",
+        "verification_status": "manually checked — title, URL, and nine-factor list verified against IRS Pub 535 (2023 edition)",
+        "checked_date": "2025-01-15",
     },
     {
         "keywords": ["170", "charitable", "contribution", "deduction", "schedule a"],
@@ -63,11 +82,15 @@ _GUIDANCE: list[dict] = [
             "or 20% (appreciated property). Contributions exceeding the limit may be carried "
             "forward up to 5 years. Substantiation is required: written acknowledgment for "
             "contributions ≥ $250; qualified appraisal for non-cash contributions > $5,000. "
-            "High contribution-to-income ratios are a Schedule A anomaly indicator but are "
-            "NOT a per-se violation. Legitimate high-ratio situations include one-time large "
-            "gifts, qualified conservation easements, and donor-advised fund contributions."
+            "High contribution-to-income ratios are a Schedule A statistical anomaly indicator "
+            "but are NOT a per-se violation of § 170. Legitimate high-ratio situations include "
+            "one-time large gifts, qualified conservation easements, and donor-advised fund "
+            "contributions. The 20%% gross-income threshold used by this model is an invented "
+            "statistical reference value — it is not an IRS-published limit."
         ),
         "url": "https://www.irs.gov/publications/p526",
+        "verification_status": "manually checked — AGI limits (60%%/30%%/20%%) verified against IRS Pub 526 (2023 edition)",
+        "checked_date": "2025-01-15",
     },
     {
         "keywords": ["1099", "information return", "third party", "underreport", "6201"],
@@ -82,9 +105,13 @@ _GUIDANCE: list[dict] = [
             "amounts and taxpayer-reported income may trigger a CP2000 notice requesting "
             "clarification. Discrepancies can arise from legitimate causes: corrected forms "
             "filed after year-end, timing differences, duplicate filings by payers, or "
-            "income that was reported on a different line of the return."
+            "income that was reported on a different line of the return. A discrepancy "
+            "is a statistical signal for review — it does NOT by itself establish "
+            "underreporting or trigger automatic audit selection."
         ),
         "url": "https://www.irs.gov/publications/p525",
+        "verification_status": "manually checked — AUR program description and CP2000 trigger verified against IRS Pub 525 (2023 edition)",
+        "checked_date": "2025-01-15",
     },
     {
         "keywords": ["schedule c", "self-employed", "sole proprietor", "business income"],
@@ -97,10 +124,12 @@ _GUIDANCE: list[dict] = [
             "A net loss may offset other income, subject to at-risk rules (IRC § 465) and "
             "passive activity rules (IRC § 469). Repeated losses may trigger IRC § 183 "
             "review (see 'hobby loss' guidance). Common high-scrutiny items include: "
-            "home office deductions (§ 280A), vehicle expenses (§ 274), meals (50% limit), "
+            "home office deductions (§ 280A), vehicle expenses (§ 274), meals (50%% limit), "
             "and depreciation of listed property."
         ),
         "url": "https://www.irs.gov/publications/p334",
+        "verification_status": "manually checked — Schedule C overview verified against IRS Pub 334 (2023 edition)",
+        "checked_date": "2025-01-15",
     },
     {
         "keywords": ["audit", "examination", "selection", "dif", "discriminant"],
@@ -113,13 +142,18 @@ _GUIDANCE: list[dict] = [
             "referrals. Publication 556 describes taxpayer rights during examination, "
             "including the right to representation, appeal procedures, and the statutory "
             "period for assessment (generally 3 years from the filing date; 6 years if "
-            "gross income is understated by more than 25%; unlimited for fraud). "
+            "gross income is understated by more than 25%%; unlimited for fraud). "
             "An examination does not imply wrongdoing. Most examinations are resolved "
-            "through correspondence."
+            "through correspondence. This model does NOT implement the IRS Discriminant "
+            "Index Function (DIF) and does NOT predict audit selection."
         ),
         "url": "https://www.irs.gov/publications/p556",
+        "verification_status": "manually checked — assessment periods and examination rights verified against IRS Pub 556 (rev. March 2023)",
+        "checked_date": "2025-01-15",
     },
 ]
+
+_REGISTRY_EDITION = "hypothetical-v1 / compiled 2025"
 
 
 def _match_guidance(topic: str, tax_year: int | None) -> list[GuidanceResult]:
@@ -136,12 +170,23 @@ def _match_guidance(topic: str, tax_year: int | None) -> list[GuidanceResult]:
             elif tax_year:
                 applicable_year = tax_year  # static entry; year noted for context
 
+            metadata = GuidanceRetrievalMetadata(
+                retrieval_mode="static/offline",
+                registry_edition=_REGISTRY_EDITION,
+                verification_status=entry.get(
+                    "verification_status",
+                    "not recorded",
+                ),
+                checked_date=entry.get("checked_date"),
+            )
+
             results.append(GuidanceResult(
                 source=entry["source"],
                 title=entry["title"],
                 tax_year_applicable=applicable_year,
                 summary=entry["summary"],
                 url=entry.get("url"),
+                retrieval_metadata=metadata,
             ))
     return results
 

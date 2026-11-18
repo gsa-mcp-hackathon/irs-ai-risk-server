@@ -34,8 +34,14 @@ requires statistical modeling across three primary signals:
 | Signal | Trigger | IRC Reference |
 |--------|---------|---------------|
 | Income Mismatch | Third-party 1099 total > self-reported income | § 6201 |
-| Outlier Deductions | Charitable contributions > 20% of gross income | § 170 |
-| Business Loss Pattern | 4+ of 5 years show Schedule C/F losses | § 183 (one of nine factors) |
+| Outlier Deductions | Charitable contributions > 20% of gross income (invented statistical threshold — not an IRS-published limit) | § 170 (see note) |
+| Business Loss Pattern | 4+ of 5 years show Schedule C/F losses | § 183 (one of nine factors only) |
+
+> **Note on the 20% threshold:** The 20% charitable-to-gross-income ratio used by this model is an
+> **invented statistical reference value** chosen for demonstration purposes. It is not an official
+> IRS-published threshold or deduction limit. Actual IRC § 170 deduction limits depend on AGI,
+> recipient type, property type, and tax year. This indicator flags a statistical anomaly for
+> examiner review — it is not a determination of § 170 non-compliance.
 
 Traditional risk models are opaque — examiners receive a score with no explanation.
 **MCP solves this** by exposing the engine as a structured, citable, version-controlled API.
@@ -174,13 +180,22 @@ uv pip install -e ".[dev]"
 ### Run the MCP server (STDIO mode)
 
 ```bash
-uv run python server.py
+# Canonical modular server (recommended)
+uv run python src/irs_risk/app.py
+
+# Or via the installed entry-point (after uv pip install -e ".[dev]"):
+irs-risk-server
 ```
+
+> **Note:** `server.py` at the repo root is the original single-file hackathon prototype.
+> It is kept for reference only. Use `src/irs_risk/app.py` for all new work.
 
 ### Connect via Bob
 
 The repository includes a `.bob/mcp.json` configuration. Open the project in Bob and the
-server connects automatically via STDIO.
+server connects automatically via STDIO. After connecting, verify with:
+`list the available IRS risk tools` — you should see five tools named `irs_evaluate_tax_profile`,
+`irs_reconcile_income`, `irs_get_guidance`, `irs_get_synthetic_record`, and `irs_generate_briefing`.
 
 ### Deploy to IBM Code Engine (Streamable-HTTP mode)
 
@@ -240,11 +255,13 @@ A reproducible evaluation framework was built and executed before the demonstrat
 | Metric | Value |
 |--------|-------|
 | Test cases | 14 synthetic cases, 7 dimensions |
-| Deterministic assertions | 53 (all passing) |
+| Tool-level passed | **12 / 12** (TC-01–TC-12) |
+| Agent-level | **2 NOT EXECUTED** — TC-13, TC-14 (require live Orchestrate agent) |
+| Deterministic assertions | 53 passing (tool-level only) |
+| Agent-level assertions | 5 SKIPPED — **not counted as passed** |
 | Consistency repeats | 3× per case |
-| Consistency result | 100% stable |
-| Skipped (agent-level) | 5 assertions (require live agent) |
-| In-process latency p50 | < 0.001 s |
+| Consistency result | 100% stable (tool-level) |
+| In-process latency p50 | < 0.001 s (direct Python calls — excludes MCP transport and LLM inference) |
 | LLM judge | Built, not activated (set `WATSONX_API_KEY`) |
 | Condition B baseline | Designed, not executed (requires live agent) |
 

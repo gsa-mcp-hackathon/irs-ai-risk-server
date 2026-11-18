@@ -46,3 +46,12 @@ deploy/ibm/code-engine-git-build/.env
 
 # Local hackathon reference templates
 docs/references/
+# ── Recording and toolkit export artefacts (never commit) ─────────────────
+# Local screen recordings — keep outside the repo until sharing is approved.
+*.mp4
+*.mov
+*.mkv
+*.webm
+# Toolkit export ZIPs from `orchestrate toolkits export`
+eval/results/toolkit_backup_*.zip
+deploy/ibm/**/*.zip

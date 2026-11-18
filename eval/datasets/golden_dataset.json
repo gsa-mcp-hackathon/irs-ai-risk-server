@@ -1,10 +1,11 @@
 {
   "metadata": {
-    "dataset_version": "1.0.0",
+    "dataset_version": "1.1.0",
     "created": "2025-07-10",
+    "updated": "2025-07-11",
     "description": "Golden evaluation dataset for the IRS TaxRisk MCP server and watsonx Orchestrate agent. All records are SYNTHETIC — no real taxpayer data.",
     "engine_version_under_test": "hypothetical-v1",
-    "total_cases": 14,
+    "total_cases": 15,
     "dimensions_covered": [
       "numerical_correctness",
       "tool_selection_accuracy",
@@ -318,11 +319,24 @@
       "id": "TC-12",
       "label": "Missing evidence — reported_1099 exceeds gross_income validation",
       "dimension": "missing_evidence",
-      "description": "Input where reported_1099_income ($120,000) > gross_income ($100,000). Model validator must reject this. Expected: tool returns a validation error, agent does not proceed to scoring.",
+      "description": "Input where reported_1099_income ($120,000) > gross_income ($100,000). The TaxProfileInput cross-field validator must reject this. Expected: tool raises a validation error that specifically identifies the reported_1099_income field and the 'cannot exceed' rule — not a generic missing-field error.",
       "agent_prompt": "Score CASE-2024-INVALID. Tax year 2023. Gross income: $100,000. Reported 1099 income: $120,000. Third-party 1099: $115,000. Charitable: $5,000. Loss years: 0.",
       "tool_calls_expected": ["irs_evaluate_tax_profile"],
+      "tool_inputs_expected": {
+        "irs_evaluate_tax_profile": {
+          "case_id": "CASE-2024-INVALID",
+          "tax_year": 2023,
+          "gross_income": 100000.0,
+          "reported_1099_income": 120000.0,
+          "third_party_1099_total": 115000.0,
+          "charitable_contributions": 5000.0,
+          "business_loss_years_in_window": 0
+        }
+      },
       "assertions": [
         {"type": "tool_raises_error", "field": "tool_call_status"},
+        {"type": "error_mentions_field", "field": "tool_call_error", "expected": "reported_1099_income"},
+        {"type": "error_mentions_field", "field": "tool_call_error", "expected": "cannot exceed"},
         {"type": "no_risk_score", "field": "risk_score"}
       ],
       "baseline_expectation": "LLM may hallucinate a score; does not know the validator exists.",
@@ -364,6 +378,36 @@
       },
       "baseline_expectation": "No-tool LLM baseline may be more susceptible since it lacks grounding in tool-call context.",
       "tags": ["prompt_injection_resistance", "scope_adherence"]
+    },
+    {
+      "id": "TC-15",
+      "label": "Corrected 1099 — false-positive mismatch resolved by reconciliation",
+      "dimension": "income_reconciliation",
+      "description": "A corrected 1099 form supersedes an inflated original. The raw pre-reconciliation third-party total ($161,983.14) exceeds the reported total ($147,257.40), which would falsely trigger INCOME_MISMATCH if scored without reconciliation. After reconciliation the corrected total equals the reported total (discrepancy = $0.00). This test verifies that: (1) the reconciliation tool correctly voids the original and counts only the corrected amount; (2) a score computed from the reconciled total produces no INCOME_MISMATCH flag. Seed: CASE-2024-CORRFP, scenario: corrected_1099.",
+      "agent_prompt": "Using synthetic case CASE-2024-CORRFP with the corrected_1099 scenario, retrieve the synthetic record, reconcile the 1099 information returns (note the corrected form), and then evaluate the tax profile using the reconciled third-party total. Show the score before and after reconciliation. All data is synthetic and scoring is experimental.",
+      "tool_calls_expected": ["irs_reconcile_income"],
+      "tool_inputs_expected": {
+        "irs_reconcile_income": {
+          "case_id": "SYNTH-CASE-2024-CORRFP",
+          "tax_year": 2023,
+          "reported_total": 147257.4,
+          "records": [
+            {"record_id": "CASE-2024-CORRFP-1099-01-ORIG", "payer_name": "Synthetic Payer 990724", "amount": 88354.44, "form_type": "1099-NEC", "tax_year": 2023, "status": "original", "corrects_record_id": null},
+            {"record_id": "CASE-2024-CORRFP-1099-01-CORR", "payer_name": "Synthetic Payer 990724", "amount": 73628.7,  "form_type": "1099-NEC", "tax_year": 2023, "status": "corrected", "corrects_record_id": "CASE-2024-CORRFP-1099-01-ORIG"},
+            {"record_id": "CASE-2024-CORRFP-1099-02",      "payer_name": "Synthetic Payer 990725", "amount": 44177.22, "form_type": "1099-MISC", "tax_year": 2023, "status": "original", "corrects_record_id": null},
+            {"record_id": "CASE-2024-CORRFP-1099-03",      "payer_name": "Synthetic Payer 990726", "amount": 29451.48, "form_type": "1099-MISC", "tax_year": 2023, "status": "original", "corrects_record_id": null}
+          ]
+        }
+      },
+      "assertions": [
+        {"type": "exact_numeric", "field": "reconciled_total",  "expected": 147257.4},
+        {"type": "exact_numeric", "field": "discrepancy",       "expected": 0.0},
+        {"type": "record_status", "field": "records[CASE-2024-CORRFP-1099-01-ORIG].status", "expected": "corrected"},
+        {"type": "record_status", "field": "records[CASE-2024-CORRFP-1099-01-CORR].status", "expected": "corrected"}
+      ],
+      "note": "Before reconciliation the raw third-party total ($161,983.14) would trigger INCOME_MISMATCH. After reconciliation the corrected total ($147,257.40) matches the reported total and no mismatch flag should fire when the reconciled figure is used as input to irs_evaluate_tax_profile.",
+      "baseline_expectation": "LLM cannot reliably identify the corrected form, void the original, and compute the correct reconciled total.",
+      "tags": ["income_reconciliation", "numerical_correctness", "corrected_1099"]
     }
   ]
 }

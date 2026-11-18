@@ -1,6 +1,23 @@
 """
-IRS Modernized Risk Core — FastMCP Server
-Hackathon scaffold: AI-native DIF (Discriminant Index Function) risk scoring.
+IRS Modernized Risk Core — FastMCP Server (LEGACY PROTOTYPE)
+
+WARNING: THIS FILE IS THE ORIGINAL SINGLE-FILE HACKATHON PROTOTYPE.
+It is kept for historical reference only.
+
+DO NOT use this file for new work. The canonical server is:
+    src/irs_risk/app.py
+
+Key differences vs the canonical server
+----------------------------------------
+- Flag name: HOBBY_LOSS_RISK (old) -> BUSINESS_LOSS_PATTERN (current)
+- Business-loss weight: 30 pts (old) -> 20 pts (current)
+- Business-loss threshold: >= 3 consecutive years (old) -> >= 4 of 5 years (current)
+- Hobby-loss language implies automatic reclassification (corrected in src/)
+- No case_id, no Pydantic models, no versioned output
+- Branding: 'Modernized DIF Risk Score' (removed in src/ — scores are HYPOTHETICAL)
+- No corrected-1099 reconciliation before scoring
+
+Bob MCP wiring: .bob/mcp.json points to src/irs_risk/app.py
 """
 
 import json

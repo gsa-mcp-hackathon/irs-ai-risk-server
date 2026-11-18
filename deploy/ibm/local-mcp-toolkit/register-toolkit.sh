@@ -14,8 +14,22 @@
 # Usage (from repo root):
 #   set -a; source deploy/ibm/local-mcp-toolkit/.env; set +a
 #   export WXO_API_KEY="<your ibm cloud api key>"  # or omit to be prompted
-#   bash deploy/ibm/local-mcp-toolkit/register-toolkit.sh
+#   bash deploy/ibm/local-mcp-toolkit/register-toolkit.sh [--dry-run]
+#
+# Flags:
+#   --dry-run   Build the staging directory and validate imports, but do NOT
+#               connect to Orchestrate, remove any existing toolkit, or import.
+#               Use this to verify the package before a live registration.
 set -euo pipefail
+
+# ── Parse flags ───────────────────────────────────────────────────────────────
+DRY_RUN=false
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) DRY_RUN=true ;;
+    *) echo "Unknown argument: $arg" >&2; exit 1 ;;
+  esac
+done
 
 # ── Config validation ─────────────────────────────────────────────────────────
 : "${WXO_ENV_NAME:?set WXO_ENV_NAME (source deploy/ibm/local-mcp-toolkit/.env)}"
@@ -35,42 +49,40 @@ echo "  toolkit name:  ${TOOLKIT_NAME}"
 echo "  package:       ${PACKAGE_NAME}"
 echo ""
 
-# ── Confirm ADK is installed ──────────────────────────────────────────────────
-if ! command -v orchestrate >/dev/null 2>&1; then
-  echo "FATAL: 'orchestrate' not found. Install the ADK:" >&2
-  echo "       pip install --upgrade ibm-watsonx-orchestrate" >&2
-  exit 1
-fi
-
-# ── Obtain the API key (never written to disk) ────────────────────────────────
-API_KEY="${WXO_API_KEY:-}"
-if [[ -z "${API_KEY}" ]]; then
-  echo "=== watsonx Orchestrate API key ==="
-  read -r -s -p "  API key (input hidden): " API_KEY
-  echo ""
-  if [[ -z "${API_KEY}" ]]; then
-    echo "FATAL: no API key provided." >&2
+# ── Confirm ADK, obtain API key, and activate Orchestrate env (skip in dry-run) ──
+if [[ "${DRY_RUN}" == "false" ]]; then
+  if ! command -v orchestrate >/dev/null 2>&1; then
+    echo "FATAL: 'orchestrate' not found. Install the ADK:" >&2
+    echo "       pip install --upgrade ibm-watsonx-orchestrate" >&2
     exit 1
   fi
+
+  # Obtain the API key (never written to disk)
+  API_KEY="${WXO_API_KEY:-}"
+  if [[ -z "${API_KEY}" ]]; then
+    echo "=== watsonx Orchestrate API key ==="
+    read -r -s -p "  API key (input hidden): " API_KEY
+    echo ""
+    if [[ -z "${API_KEY}" ]]; then
+      echo "FATAL: no API key provided." >&2
+      exit 1
+    fi
+  fi
+
+  # Activate the Orchestrate environment
+  echo "=== Activating ADK environment '${WXO_ENV_NAME}' ==="
+  if orchestrate env list 2>/dev/null | grep -q "${WXO_ENV_NAME}"; then
+    echo "  env exists — reusing."
+  else
+    echo "  adding new environment..."
+    orchestrate env add --name "${WXO_ENV_NAME}" --url "${WXO_INSTANCE_URL}" --type ibm_iam
+  fi
+  orchestrate env activate "${WXO_ENV_NAME}" --api-key "${API_KEY}"
+  echo ""
+  orchestrate env list
+  echo ""
 fi
 
-# ── Activate the Orchestrate environment ──────────────────────────────────────
-echo "=== Activating ADK environment '${WXO_ENV_NAME}' ==="
-if orchestrate env list 2>/dev/null | grep -q "${WXO_ENV_NAME}"; then
-  echo "  env exists — reusing."
-else
-  echo "  adding new environment..."
-  orchestrate env add --name "${WXO_ENV_NAME}" --url "${WXO_INSTANCE_URL}" --type ibm_iam
-fi
-orchestrate env activate "${WXO_ENV_NAME}" --api-key "${API_KEY}"
-echo ""
-orchestrate env list
-echo ""
-
-# ── Build a minimal, flat staging package_root ───────────────────────────────
-# Uploading the full repo hits a 413 (virtualenvs are large).
-# We stage ONLY what the server needs, flattened so `irs_risk` is importable
-# directly from package_root without a build/install step.
 echo "=== Staging minimal package_root at ${STAGE_DIR} ==="
 rm -rf "${STAGE_DIR}"
 mkdir -p "${STAGE_DIR}"
@@ -79,7 +91,7 @@ mkdir -p "${STAGE_DIR}"
 cp -R "${REPO_ROOT}/src/${PACKAGE_NAME}" "${STAGE_DIR}/${PACKAGE_NAME}"
 
 # Orchestrate entry point and dependencies
-cp "${SCRIPT_DIR}/server.py"      "${STAGE_DIR}/server.py"
+cp "${SCRIPT_DIR}/server.py"        "${STAGE_DIR}/server.py"
 cp "${SCRIPT_DIR}/requirements.txt" "${STAGE_DIR}/requirements.txt"
 
 # Drop __pycache__ directories to keep the upload small
@@ -91,6 +103,37 @@ echo "  staged contents:"
 find "${STAGE_DIR}" -type f | sort | sed 's|^|    |'
 echo ""
 
+# ── Staging validation — verify the package imports correctly ─────────────────
+echo "=== Validating staged package imports ==="
+VALIDATE_PY="${STAGE_DIR}/_validate.py"
+cat > "${VALIDATE_PY}" <<'PYEOF'
+import sys, os
+sys.path.insert(0, os.path.dirname(__file__))
+from irs_risk.app import mcp
+import asyncio
+async def check():
+    tools = await mcp.list_tools()
+    names = {t.name for t in tools}
+    expected = {
+        "irs_evaluate_tax_profile", "irs_reconcile_income",
+        "irs_get_guidance", "irs_get_synthetic_record", "irs_generate_briefing",
+    }
+    missing = expected - names
+    if missing:
+        print(f"FAIL: missing tools: {missing}", file=sys.stderr); sys.exit(1)
+    print(f"OK: {len(names)} tools discoverable: {sorted(names)}")
+asyncio.run(check())
+PYEOF
+if python3 "${VALIDATE_PY}" 2>&1; then
+  echo "  staging validation PASSED"
+else
+  echo "FATAL: staging validation failed — aborting. Fix the error above before re-running." >&2
+  rm -rf "${STAGE_DIR}" "${VALIDATE_PY}"
+  exit 1
+fi
+rm -f "${VALIDATE_PY}"
+echo ""
+
 # ── Generate the toolkit spec pointing at the staging dir ─────────────────────
 sed -E "s|^package_root:.*|package_root: ${STAGE_DIR}|" \
   "${SCRIPT_DIR}/toolkit.yaml" > "${TOOLKIT_YAML}"
@@ -98,12 +141,29 @@ echo "=== Generated toolkit spec: ${TOOLKIT_YAML} ==="
 cat "${TOOLKIT_YAML}"
 echo ""
 
-# ── Remove existing registration if present ───────────────────────────────────
+if [[ "${DRY_RUN}" == "true" ]]; then
+  echo "=== DRY RUN complete — staging directory and spec written but NOT uploaded ==="
+  echo "  Stage dir: ${STAGE_DIR}"
+  echo "  Spec file: ${TOOLKIT_YAML}"
+  echo "  Re-run without --dry-run to perform the live registration."
+  exit 0
+fi
+
+# ── Remove existing registration (requires explicit confirmation) ─────────────
 echo "=== Checking for existing toolkit '${TOOLKIT_NAME}' ==="
 if orchestrate toolkits list 2>/dev/null | grep -q "${TOOLKIT_NAME}"; then
-  echo "  toolkit exists — removing before re-import."
-  orchestrate toolkits remove --name "${TOOLKIT_NAME}" || true
-  echo "  removed."
+  echo ""
+  echo "  ⚠  An existing toolkit named '${TOOLKIT_NAME}' was found."
+  echo "     Removing it will make all agents using it unavailable until re-import completes."
+  read -r -p "  Delete existing toolkit and re-import? [y/N]: " CONFIRM
+  if [[ "${CONFIRM}" =~ ^[Yy]$ ]]; then
+    orchestrate toolkits remove --name "${TOOLKIT_NAME}"
+    echo "  Removed."
+  else
+    echo "  Aborted by user. Existing toolkit is unchanged." >&2
+    rm -rf "${STAGE_DIR}" "${TOOLKIT_YAML}"
+    exit 1
+  fi
 else
   echo "  not found — fresh registration."
 fi

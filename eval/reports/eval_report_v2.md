@@ -14,14 +14,14 @@
 
 ---
 
-**Server under test:** IRS TaxRisk MCP Server (`src/irs_risk/` + `server.py`)  
+**Server under test:** IRS TaxRisk MCP Server (`src/irs_risk/` + `server.py`)
 **Evaluation framework:** Custom deterministic harness (`eval/scripts/harness.py`) +
-pytest wrapper; LLM-as-judge module built but not activated (see §3.4)  
-**Agent platform:** IBM watsonx Orchestrate (ADK)  
-**Engine version:** `hypothetical-v1`  
-**Dataset:** `golden_dataset.json` v1.0.0 (14 synthetic cases)  
-**Harness run date:** 2026-10-29 (run file: `eval/results/run_20261029T144035Z.json`)  
-**Consistency repeats:** 3 per case
+pytest wrapper; LLM-as-judge module built but not activated (see §3.4)
+**Agent platform:** IBM watsonx Orchestrate (ADK)
+**Engine version:** `hypothetical-v1`
+**Dataset:** `golden_dataset.json` v1.1.0 (15 synthetic cases — TC-15 added 2026-11-18)
+**Harness run date:** 2026-11-18 (run file: `eval/results/run_20261118T145209Z.json`)
+**Consistency repeats:** 3 per case (original v1.0.0 run); 1× for TC-15 addendum run
 
 ---
 
@@ -132,7 +132,7 @@ are compared across all three repeats. Any variance flags the case as non-determ
 
 ### 2.3 Synthetic Golden Dataset
 
-The golden dataset (`eval/datasets/golden_dataset.json`, v1.0.0) contains **14 test cases**
+The golden dataset (`eval/datasets/golden_dataset.json`, v1.1.0) contains **15 test cases**
 across **7 evaluation dimensions**. All records are algorithmically generated from opaque
 seed identifiers — no real taxpayer information is used anywhere.
 
@@ -145,14 +145,14 @@ describing predicted no-tool-LLM behaviour, and `tags` for dimension filtering.
 | Dimension | Cases | Assertion types used |
 |-----------|-------|----------------------|
 | `numerical_correctness` | TC-01 – TC-05 | `exact_numeric`, `exact_string`, `flag_present`, `flag_absent`, `all_flags_not_determinative` |
-| `income_reconciliation` | TC-06 – TC-08 | `exact_numeric`, `record_status`, `duplicate_record_flagged` |
+| `income_reconciliation` | TC-06 – TC-08, **TC-15** | `exact_numeric`, `record_status`, `duplicate_record_flagged` |
 | `guidance_citation` | TC-09 – TC-10 | `contains_text` (source, URL, summary keywords) |
 | `missing_evidence` | TC-11 – TC-12 | `exact_numeric` (results_count=0), `tool_raises_error`, `no_risk_score` |
 | `scope_adherence` | TC-13 | `no_tool_called`, `contains_disclaimer` *(agent-level, PENDING)* |
 | `prompt_injection_resistance` | TC-14 | `no_system_prompt_leak`, `does_not_comply_with_injection` *(agent-level, PENDING)* |
 
-**Total assertions authored:** 58  
-**Deterministic assertions (executable without live agent):** 53  
+**Total assertions authored:** 62 (+4 from TC-15)
+**Deterministic assertions (executable without live agent):** 57 (+4 from TC-15)
 **Agent-level assertions (require live Orchestrate call):** 5 — marked PENDING
 
 ### 2.4 Evaluators
@@ -233,6 +233,7 @@ it returned without error.
 | TC-12 | `irs_evaluate_tax_profile` | ✓ | Pydantic ValidationError (expected) | PASS |
 | TC-13 | *(none — should not call a tool)* | N/A | PENDING — agent-level | PENDING |
 | TC-14 | `irs_evaluate_tax_profile` *(then ignore injection)* | N/A | PENDING — agent-level | PENDING |
+| TC-15 | `irs_reconcile_income` | ✓ | None | PASS |
 
 **TC-12 note:** The tool raised a `ValidationError` as expected when `reported_1099_income`
 ($120,000) exceeded `gross_income` ($100,000). Pydantic's `reported_1099_must_not_exceed_gross`
@@ -371,7 +372,7 @@ engine enforces this unconditionally.
 
 ### 5.1 Income Reconciliation Results
 
-All three reconciliation cases passed all assertions across 3 consistency repeats.
+All four reconciliation cases passed all assertions.
 
 **TC-06 — Three original records, clean match (expected discrepancy = 0)**
 
@@ -421,6 +422,51 @@ Reconciled: $15,000 + $8,000 = $23,000. Discrepancy: +$3,000 (underreporting).
 duplicate record, producing `reconciled_total = $38,000` and `discrepancy = +$18,000`
 — a significant error that would misidentify the severity of any underreporting signal.
 The MCP tool's deduplication algorithm eliminates this class of error entirely.
+
+---
+
+**TC-15 — Corrected 1099 removes false-positive income mismatch (added v1.1.0)**
+
+*Run date: 2026-11-18. Run file: `eval/results/run_20261118T145209Z.json`.
+Harness output: `reconciled=147257.40 reported=147257.40 discrepancy=0.00 engine=decimal`.*
+
+Scenario: `corrected_1099`, seed `CASE-2024-CORRFP`, tax year 2023.
+Four 1099 sub-records are submitted:
+
+| Record ID | Amount | Status | Note |
+|-----------|--------|--------|------|
+| `CASE-2024-CORRFP-1099-01-ORIG` | $88,354.44 | original | Will be voided by corrected form |
+| `CASE-2024-CORRFP-1099-01-CORR` | $73,628.70 | corrected | Supersedes ORIG; `corrects_record_id` set |
+| `CASE-2024-CORRFP-1099-02` | $44,177.22 | original | Counted |
+| `CASE-2024-CORRFP-1099-03` | $29,451.48 | original | Counted |
+
+Pre-reconciliation raw 3P total: $88,354.44 + $44,177.22 + $29,451.48 = **$161,983.14** —
+this exceeds the reported total ($147,257.40) by $14,725.74 and would trigger
+`INCOME_MISMATCH` as a **false positive** if scored directly.
+
+After reconciliation: ORIG is voided; reconciled total = $73,628.70 + $44,177.22 + $29,451.48 =
+**$147,257.40** — exactly equal to the reported total (discrepancy = $0.00).
+
+The `corrected_1099_trace` block returned by `irs_get_synthetic_record` documents both
+the pre- and post-reconciliation arithmetic for independent verification. The `arithmetic_trace`
+in the `irs_reconcile_income` output uses `Decimal` with `ROUND_HALF_EVEN` throughout.
+
+| Assertion | Expected | Actual | Result |
+|-----------|----------|--------|--------|
+| `reconciled_total` | 147257.40 | 147257.40 | ✓ PASS |
+| `discrepancy` | 0.0 | 0.0 | ✓ PASS |
+| `CASE-2024-CORRFP-1099-01-ORIG` status | `corrected` (voided) | `corrected` | ✓ PASS |
+| `CASE-2024-CORRFP-1099-01-CORR` status | `corrected` (live) | `corrected` | ✓ PASS |
+
+**Key property demonstrated:** `irs_reconcile_income` must be called before
+`irs_evaluate_tax_profile` whenever corrected or duplicate 1099 records may be present.
+Passing the reconciled total (not the raw pre-reconciliation sum) as `third_party_1099_total`
+to the scoring tool ensures no false-positive `INCOME_MISMATCH` flag fires.
+
+**Baseline comparison note:** A no-tool LLM cannot reliably identify which 1099 record
+is the correction, void the original, and compute the correct reconciled total. It would
+most likely sum all four records ($161,983.14) or omit the corrected form entirely,
+producing either a false-positive mismatch flag or an arithmetically incorrect total.
 
 ### 5.2 Tax Guidance Citation Accuracy
 
@@ -585,30 +631,40 @@ behaviour dominates.
 
 ### 8.1 Aggregate Results — Condition A (Executed)
 
-**Run file:** `eval/results/run_20261029T144035Z.json`  
-**Run timestamp:** 2026-10-29T14:40:35Z  
-**Repeats:** 3 per case  
+> **v1.1.0 addendum (2026-11-18):** TC-15 added to dataset. The original v1.0.0 run
+> (run_20261029T144035Z.json, 14 cases, 3× repeats) remains the primary result record.
+> The addendum run (run_20261118T145209Z.json, 15 cases, 1× repeat) confirms TC-15 PASS
+> and all prior results unchanged. Both run files are retained under `eval/results/`.
 
-| Metric | Value |
-|--------|-------|
-| Total cases | 14 |
-| Overall PASS | **14 / 14 (100%)** |
-| Overall FAIL | 0 |
-| Deterministic assertions evaluated | 53 |
-| Deterministic assertions passed | 53 (100%) |
-| Agent-level assertions SKIPPED | 5 (TC-13: 3, TC-14: 2) |
-| Consistency — cases with variance across repeats | 0 |
-| Consistency — all 14 cases confirmed stable | ✓ |
+**Primary run file:** `eval/results/run_20261029T144035Z.json`
+**Primary run timestamp:** 2026-10-29T14:40:35Z
+**Addendum run file:** `eval/results/run_20261118T145209Z.json`
+**Addendum run timestamp:** 2026-11-18T14:52:09Z
+**Repeats:** 3 per case (primary); 1× (addendum)
 
-*Note: PASS status for TC-13 and TC-14 reflects zero failing deterministic assertions,
-not a verified pass of the scope and injection criteria. Those criteria are PENDING.*
+| Metric | v1.0.0 Primary | v1.1.0 Addendum |
+|--------|----------------|-----------------|
+| Total cases | 14 | **15** |
+| Tool-level PASS | **12 / 12** (TC-01 – TC-12) | **13 / 13** (TC-01 – TC-12 + TC-15) |
+| Tool-level FAIL | 0 | 0 |
+| Agent-level NOT EXECUTED | **2** (TC-13, TC-14) | **2** (TC-13, TC-14) |
+| Deterministic assertions evaluated | 53 | **57** |
+| Deterministic assertions passed | 53 (100%) | **57 (100%)** |
+| Agent-level assertions SKIPPED | 5 (TC-13: 3, TC-14: 2) | 5 (unchanged) |
+| Consistency — cases with variance | 0 | 0 |
+| All tool-level cases confirmed stable | ✓ | ✓ |
+
+> ⚠ **TC-13 (scope adherence) and TC-14 (prompt injection) were NOT executed and are NOT
+> passed.** Their agent-level assertions require a live watsonx Orchestrate agent call.
+> Skipped assertions are reported as SKIPPED, never as PASS.
+> See §6 for the full PENDING analysis and acceptance criteria.
 
 ### 8.2 Results by Dimension
 
 | Dimension | Cases | PASS | FAIL | PENDING |
 |-----------|-------|------|------|---------|
 | `numerical_correctness` | 5 | **5** | 0 | 0 |
-| `income_reconciliation` | 3 | **3** | 0 | 0 |
+| `income_reconciliation` | **4** (TC-06–08, TC-15) | **4** | 0 | 0 |
 | `guidance_citation` | 2 | **2** | 0 | 0 |
 | `missing_evidence` | 2 | **2** | 0 | 0 |
 | `scope_adherence` | 1 | 0 | 0 | **1** (agent-level) |
@@ -768,15 +824,15 @@ All results are valid only for `hypothetical-v1`. Any change to weights or thres
 in `engine.py` invalidates the numerical golden values.
 
 **L8 — Small dataset, single prompt version.**
-14 cases cover the primary paths but leave many task combinations untested. No system
+15 cases (v1.1.0) cover the primary paths but leave many task combinations untested. No system
 prompt versioning was applied in this evaluation run.
 
 ### 10.3 What Worked
 
 - **Deterministic assertions eliminated false positives.** Exact-numeric comparison for
   all risk scores and reconciliation figures means results cannot be ambiguous.
-- **Consistency repeats produced a real signal.** Three repeats confirmed all 14 cases
-  are stable — and, importantly, Failure 2 was discovered only because the consistency
+- **Consistency repeats produced a real signal.** Three repeats confirmed all 13 tool-level
+  cases are stable — and, importantly, Failure 2 was discovered only because the consistency
   check existed.
 - **The harness found real bugs before the demo.** All three failures above were caught
   during evaluation development, not during the live demo.
@@ -829,7 +885,7 @@ eval/
 ├── config/
 │   └── eval_config.yaml            # Thresholds, judge settings, Phoenix status, conditions
 ├── datasets/
-│   └── golden_dataset.json         # 14 synthetic test cases, 7 dimensions, v1.0.0
+│   └── golden_dataset.json         # 15 synthetic test cases, 7 dimensions, v1.1.0
 ├── scripts/
 │   ├── harness.py                  # Main deterministic evaluation harness
 │   ├── test_eval_deterministic.py  # pytest wrapper (EVAL_REPEAT env var)
@@ -885,7 +941,7 @@ These values are hardcoded in `src/irs_risk/engine.py` and must be updated in
 
 ---
 
-*This report was generated by the IRS TaxRisk evaluation framework v1.0.0.*
+*This report was generated by the IRS TaxRisk evaluation framework v1.1.0 (TC-15 addendum 2026-11-18).*
 *Structured after the GSA MCP and AI Agent Hackathon sample evaluation document.*
 *No performance results have been invented. All numeric values are from executed tests.*
 *Sections marked PENDING reflect tests that are designed but not yet executed.*
