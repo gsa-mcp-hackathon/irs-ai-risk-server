@@ -6,7 +6,7 @@
 # stdio INSIDE the Orchestrate runtime — no HTTP, no Code Engine, no container.
 #
 # Prerequisites:
-#   - Python 3.11–3.14 (python3.12 detected on this machine)
+#   - Python 3.10+ with fastmcp installed (the repo .venv satisfies this)
 #   - ADK installed: pip install --upgrade ibm-watsonx-orchestrate
 #   - Config: cp deploy/ibm/local-mcp-toolkit/.env.example deploy/ibm/local-mcp-toolkit/.env
 #             then edit the .env file
@@ -104,7 +104,31 @@ find "${STAGE_DIR}" -type f | sort | sed 's|^|    |'
 echo ""
 
 # ── Staging validation — verify the package imports correctly ─────────────────
+# The system python3 may be too old or lack fastmcp. Walk a priority list:
+#   1. .venv/bin/python  (repo venv — always has fastmcp if the project is set up)
+#   2. python3.12 / python3.11 / python3.10  (versioned interpreters on PATH)
+#   3. python3  (bare fallback — used only if it has fastmcp)
 echo "=== Validating staged package imports ==="
+_pick_python() {
+  for _candidate in \
+      "${REPO_ROOT}/.venv/bin/python" \
+      python3.12 python3.11 python3.10 python3; do
+    if command -v "${_candidate}" >/dev/null 2>&1 || [[ -x "${_candidate}" ]]; then
+      if "${_candidate}" -c "import fastmcp" >/dev/null 2>&1; then
+        echo "${_candidate}"; return 0
+      fi
+    fi
+  done
+  return 1
+}
+PYTHON_BIN="$(_pick_python)" || {
+  echo "FATAL: no Python interpreter with fastmcp found." >&2
+  echo "  Run: source .venv/bin/activate && uv pip install -e '.[dev]'" >&2
+  rm -rf "${STAGE_DIR}"
+  exit 1
+}
+echo "  using Python: ${PYTHON_BIN} ($(${PYTHON_BIN} --version 2>&1))"
+
 VALIDATE_PY="${STAGE_DIR}/_validate.py"
 cat > "${VALIDATE_PY}" <<'PYEOF'
 import sys, os
@@ -124,7 +148,7 @@ async def check():
     print(f"OK: {len(names)} tools discoverable: {sorted(names)}")
 asyncio.run(check())
 PYEOF
-if python3 "${VALIDATE_PY}" 2>&1; then
+if "${PYTHON_BIN}" "${VALIDATE_PY}" 2>&1; then
   echo "  staging validation PASSED"
 else
   echo "FATAL: staging validation failed — aborting. Fix the error above before re-running." >&2
