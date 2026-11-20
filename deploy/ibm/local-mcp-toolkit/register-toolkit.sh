@@ -181,8 +181,20 @@ if orchestrate toolkits list 2>/dev/null | grep -q "${TOOLKIT_NAME}"; then
   echo "     Removing it will make all agents using it unavailable until re-import completes."
   read -r -p "  Delete existing toolkit and re-import? [y/N]: " CONFIRM
   if [[ "${CONFIRM}" =~ ^[Yy]$ ]]; then
-    orchestrate toolkits remove --name "${TOOLKIT_NAME}"
+    orchestrate toolkits remove --name "${TOOLKIT_NAME}" || {
+      echo "FATAL: 'orchestrate toolkits remove' failed. The existing toolkit is still registered." >&2
+      echo "       Try removing it manually: orchestrate toolkits remove --name '${TOOLKIT_NAME}'" >&2
+      rm -rf "${STAGE_DIR}" "${TOOLKIT_YAML}"
+      exit 1
+    }
     echo "  Removed."
+    # Verify removal before proceeding — the import will fail if the toolkit still exists
+    if orchestrate toolkits list 2>/dev/null | grep -qF "${TOOLKIT_NAME}"; then
+      echo "FATAL: toolkit still appears in list after remove — aborting to avoid import conflict." >&2
+      rm -rf "${STAGE_DIR}" "${TOOLKIT_YAML}"
+      exit 1
+    fi
+    echo "  Confirmed: '${TOOLKIT_NAME}' no longer in toolkit list."
   else
     echo "  Aborted by user. Existing toolkit is unchanged." >&2
     rm -rf "${STAGE_DIR}" "${TOOLKIT_YAML}"
