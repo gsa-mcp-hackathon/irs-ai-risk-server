@@ -44,8 +44,19 @@ deploy/ibm/local-mcp-toolkit/_toolkit.generated.yaml
 deploy/ibm/local-mcp-toolkit/.env
 deploy/ibm/code-engine-git-build/.env
 
-# Local hackathon reference templates
+# ── Local hackathon reference templates ───────────────────────────────────
 docs/references/
+
+# ── Presentation materials (keep locally, not for hackathon fork) ──────────
+presentation/
+
+# ── Internal review / remediation docs (keep locally) ─────────────────────
+docs/review/
+
+# ── Eval outputs (generated artefacts; keep locally) ──────────────────────
+eval/results/
+eval/reports/
+
 # ── Recording and toolkit export artefacts (never commit) ─────────────────
 # Local screen recordings — keep outside the repo until sharing is approved.
 *.mp4
@@ -53,5 +64,4 @@ docs/references/
 *.mkv
 *.webm
 # Toolkit export ZIPs from `orchestrate toolkits export`
-eval/results/toolkit_backup_*.zip
 deploy/ibm/**/*.zip
