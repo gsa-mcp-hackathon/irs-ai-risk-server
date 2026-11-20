@@ -254,21 +254,6 @@ irs-ai-risk-server/
 └── uv.lock                            # Locked dependency graph (uv)
 ```
 
-### Not included in the fork (gitignored — kept locally only)
-
-| Path | Contents | Reason excluded |
-|------|----------|-----------------|
-| `presentation/` | PPTX decks, demo script, screenshot guide | Presentation materials specific to original submission |
-| `docs/review/` | Internal review patch, remediation docs | Internal working documents |
-| `docs/references/` | Sample deck, evaluation template DOCX | Reference materials, not source code |
-| `eval/results/` | JSON run outputs, failure analyses | Generated artefacts — reproducible by running the harness |
-| `eval/reports/` | `eval_report_v1.md`, `eval_report_v2.md/.docx` | Generated reports — reproducible from eval scripts |
-| `.env` | Local environment secrets | Never committed (contains API keys) |
-| `.venv/` | Local Python virtualenv | Machine-specific |
-| `__pycache__/` | Compiled bytecode | Generated on import |
-
----
-
 ## Evaluation Summary
 
 A reproducible evaluation framework was built and executed before the demonstration.
