@@ -208,6 +208,10 @@ server connects automatically via STDIO. After connecting, verify with:
 
 ## Project Structure
 
+The following tree reflects what is committed to the repository and present in the
+hackathon fork. Items kept only on the original developer's machine are listed in the
+table below the tree.
+
 ```
 irs-ai-risk-server/
 ├── server.py                          # Original single-file MCP server (prompts + resource)
@@ -216,35 +220,52 @@ irs-ai-risk-server/
 │   ├── models.py                      # Pydantic v2 input/output models
 │   ├── reconcile.py                   # 1099 reconciliation algorithm
 │   ├── config.py                      # Settings (transport, engine version, SOI endpoint)
+│   ├── app.py                         # FastMCP app entry-point (modular server)
+│   ├── routes.py                      # MCP resource + prompt registration
+│   ├── utils.py                       # Shared helpers
+│   ├── prompts/                       # MCP prompt definitions
+│   ├── resources/                     # MCP resource definitions
 │   └── tools/
 │       ├── evaluate_profile.py        # irs_evaluate_tax_profile
 │       ├── reconcile_income.py        # irs_reconcile_income
-│       ├── get_irs_guidance.py        # irs_get_guidance (with static registry)
+│       ├── get_irs_guidance.py        # irs_get_guidance (static registry)
 │       ├── generate_briefing.py       # irs_generate_briefing
 │       └── get_synthetic_record.py    # irs_get_synthetic_record
 ├── tests/                             # Unit tests for engine, models, reconcile, tools
 ├── eval/
 │   ├── config/eval_config.yaml        # Evaluation configuration
 │   ├── datasets/golden_dataset.json   # 14 synthetic test cases, 7 dimensions
-│   ├── scripts/
-│   │   ├── harness.py                 # Main deterministic evaluation harness
-│   │   ├── test_eval_deterministic.py # pytest wrapper (run with EVAL_REPEAT=3)
-│   │   ├── judge.py                   # LLM-as-judge (activates on WATSONX_API_KEY)
-│   │   └── phoenix_integration.py    # Arize Phoenix stubs (not activated)
-│   ├── results/                       # JSON run outputs + failure analysis
-│   ├── reports/eval_report_v1.md     # Previous report (internal structure)
-│   ├── reports/eval_report_v2.md     # Primary report (GSA template, all actual data)
-│   └── reports/eval_report_v2.docx   # DOCX version of eval_report_v2
+│   └── scripts/
+│       ├── harness.py                 # Main deterministic evaluation harness
+│       ├── test_eval_deterministic.py # pytest wrapper (run with EVAL_REPEAT=3)
+│       ├── judge.py                   # LLM-as-judge (activates on WATSONX_API_KEY)
+│       └── phoenix_integration.py     # Arize Phoenix stubs (not activated)
 ├── deploy/ibm/
 │   ├── mdc_irs_risk_agent.yaml        # watsonx Orchestrate agent definition
 │   └── local-mcp-toolkit/            # Toolkit registration for Orchestrate
-├── presentation/
-│   ├── IRS-TaxRisk-MCP-Hackathon-Deck-v2.pptx  # 9-slide deck (current)
-│   ├── IRS-TaxRisk-MCP-Hackathon-Deck.pptx     # Original v1 deck
-│   ├── demo_script_5min.md            # 5-minute live demonstration script
-│   └── screenshot_capture_guide.md   # Screenshot/log capture checklist
-└── pyproject.toml
+│       ├── server.py                  # Thin HTTP wrapper for toolkit registration
+│       ├── toolkit.yaml               # Toolkit spec
+│       ├── register-toolkit.sh        # Registration script
+│       └── requirements.txt
+├── docs/                              # Empty in fork — reference materials are local only
+├── .env.example                       # Environment variable template
+├── pyproject.toml                     # Project metadata and dependencies
+├── requirements.txt                   # Pip-compatible dependency list
+└── uv.lock                            # Locked dependency graph (uv)
 ```
+
+### Not included in the fork (gitignored — kept locally only)
+
+| Path | Contents | Reason excluded |
+|------|----------|-----------------|
+| `presentation/` | PPTX decks, demo script, screenshot guide | Presentation materials specific to original submission |
+| `docs/review/` | Internal review patch, remediation docs | Internal working documents |
+| `docs/references/` | Sample deck, evaluation template DOCX | Reference materials, not source code |
+| `eval/results/` | JSON run outputs, failure analyses | Generated artefacts — reproducible by running the harness |
+| `eval/reports/` | `eval_report_v1.md`, `eval_report_v2.md/.docx` | Generated reports — reproducible from eval scripts |
+| `.env` | Local environment secrets | Never committed (contains API keys) |
+| `.venv/` | Local Python virtualenv | Machine-specific |
+| `__pycache__/` | Compiled bytecode | Generated on import |
 
 ---
 
@@ -275,10 +296,9 @@ uv run python eval/scripts/harness.py --repeat 3
 EVAL_REPEAT=3 uv run pytest eval/scripts/test_eval_deterministic.py -v
 ```
 
-See [`eval/reports/eval_report_v2.md`](eval/reports/eval_report_v2.md) for full methodology,
-results, and failure analysis. The companion DOCX
-([`eval/reports/eval_report_v2.docx`](eval/reports/eval_report_v2.docx)) follows the
-GSA sample evaluation document structure.
+Evaluation reports (`eval/reports/`) are generated artefacts and are not included in the
+fork — see the **Not included in the fork** table above. To regenerate them, run the
+harness above and inspect the JSON outputs in `eval/results/` on your local machine.
 
 ---
 
